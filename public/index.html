@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E2E Test Runner</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="panel full">
+      <h1>🧪 E2E Test Runner - Live Testing Dashboard</h1>
+    </div>
+
+    <div class="panel">
+      <h2>📝 Test Scenario Editor</h2>
+      <div class="scenarios-list" id="scenarios"></div>
+      <input type="text" id="scenarioName" placeholder="Scenario name (e.g., login-test.txt)" value="live-test.txt">
+      <div class="line-editor" id="lineEditor">
+        <!-- Lines will be rendered here -->
+      </div>
+      <div class="add-line-row">
+        <input type="text" id="newLineInput" placeholder="instruction >>> expected result" onkeypress="handleNewLineKeypress(event)">
+        <button class="add-line-btn" onclick="addNewLine()">+ Add Line</button>
+      </div>
+      <div class="commands-hint">
+        <strong>Special Commands:</strong>
+        <code>go to &lt;url&gt;</code>
+        <code>reset session</code>
+        <code>scroll down</code>
+        <code>scroll up</code>
+        <span class="hint-note">Prefix with <code>*1</code> or <code>*2</code> for specific browser</span>
+      </div>
+      <button onclick="saveScenario()">💾 Save Scenario</button>
+      <button class="secondary" onclick="loadScenarios()">🔄 Refresh List</button>
+    </div>
+
+    <div class="panel">
+      <h2>🚀 Test Execution</h2>
+      <div class="browser-urls">
+        <div class="browser-url-row">
+          <span class="browser-label">*1</span>
+          <input type="text" id="browserUrl1" placeholder="Browser 1 URL" value="https://latower.ch">
+        </div>
+        <div class="browser-url-row">
+          <span class="browser-label">*2</span>
+          <input type="text" id="browserUrl2" placeholder="Browser 2 URL" value="https://latower.ch">
+        </div>
+      </div>
+      <button onclick="initBrowsers()" id="initBtn">🌐 Init Browsers</button>
+      <button onclick="runTest()" id="runBtn">▶️ Run Test</button>
+      <button class="secondary" onclick="resetSession()">🔄 Reset</button>
+      <button class="secondary" onclick="clearLogs()">🗑️ Clear</button>
+      <div class="browser-status" id="browserStatus">
+        <span class="status-dot" id="browser1Status"></span> Browser 1
+        <span class="status-dot" id="browser2Status"></span> Browser 2
+      </div>
+      <div class="summary" id="summary" style="display: none;">
+        <div class="summary-item">
+          <div class="summary-value" id="totalTests">0</div>
+          <div class="summary-label">Total</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-value" style="color: #22c55e;" id="passedTests">0</div>
+          <div class="summary-label">Passed</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-value" style="color: #ef4444;" id="failedTests">0</div>
+          <div class="summary-label">Failed</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel full">
+      <h2>📊 Test Results</h2>
+      <div class="results" id="results"></div>
+    </div>
+
+    <div class="panel full">
+      <h2>📋 Execution Logs</h2>
+      <div class="logs" id="logs"></div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+{
+  "name": "flowspec",
+  "version": "1.0.0",
+  "description": "AI-powered E2E test automation framework using LangGraph and Model Context Protocol",
+  "main": "langgraph-runner.js",
+  "type": "module",
+  "scripts": {
+    "start": "node start-all.js",
+    "start:ui": "tsx web-ui.ts",
+    "start:mcp1": "mcp-server-playwright --port 8932 --host 0.0.0.0 --no-sandbox --ignore-https-errors --allowed-hosts='*' --browser firefox --user-data-dir ./user_dir --storage-state ./storage_state --shared-browser-context",
+    "start:mcp2": "mcp-server-playwright --port 8933 --host 0.0.0.0 --no-sandbox --ignore-https-errors --allowed-hosts='*' --browser firefox --user-data-dir ./user_dir_2 --storage-state ./storage_state_2 --shared-browser-context",
+    "cli": "tsx run.ts",
+    "test:e2e": "tsx run.ts",
+    "dev": "tsx watch web-ui.ts"
+  },
+  "keywords": [
+    "e2e",
+    "testing",
+    "automation",
+    "ai",
+    "langgraph",
+    "mcp",
+    "playwright"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@langchain/core": "^0.3.0",
+    "@langchain/langgraph": "^0.2.0",
+    "@langchain/openai": "^0.3.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@playwright/mcp": "^0.0.55",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "socket.io": "^4.8.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

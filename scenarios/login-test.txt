@@ -1,0 +1,4 @@
+close the "Installer Tower Heroes" view by clicking on "Plus tard">>> The text "Installer Tower Heroes" is not displayed
+find and click the login or authentication button >>> the login form is displayed
+enter unique code f30d9163-c472-4361-add3-888ebba2fd0 in the unique code field , enter PIN 12345678 in the PIN field and login >>>  an error message about Invalid login credentials is shown
+enter unique code f30d9163-c472-4361-add3-888ebba2fd06 in the unique code field , enter PIN 33670863 in the PIN field and login >>> player home is shown with text "Gino de Lawill" and some other content 

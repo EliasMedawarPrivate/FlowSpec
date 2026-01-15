@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.local
+
+# Build output
+dist/
+
+# State files (generated at runtime)
+.memory-state.json
+.browser-state.json
+
+# Playwright MCP user data directories
+user_dir/
+user_dir_2/
+storage_state
+storage_state_2
+
+# Temporary test files
+scenarios/.temp-test.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/
