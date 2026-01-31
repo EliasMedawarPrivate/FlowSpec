@@ -5,6 +5,7 @@ let currentScenario = null;
 let isSaved = true;
 let editorLines = [];
 let runningLineIndex = null;
+let continueToNextLine = false; // Flag to auto-run next line after current completes
 let browsersInitialized = false;
 
 // Load scenarios on startup
@@ -264,9 +265,9 @@ function renderEditor() {
              onclick="this.select()"
              title="Edit to move line">
       <button class="line-play-btn ${runningLineIndex === index ? 'running' : ''}"
-              onclick="runSingleLine(${index})"
+              onclick="runSingleLine(${index}, event)"
               ${runningLineIndex !== null ? 'disabled' : ''}
-              title="Run this line">
+              title="Run this line (Ctrl+Click to continue to next)">
         ${runningLineIndex === index ? '⏳' : '▶'}
       </button>
       <input type="text"
@@ -374,7 +375,7 @@ function isSpecialCommand(line) {
 }
 
 // Single line execution
-async function runSingleLine(index) {
+async function runSingleLine(index, event) {
   const line = editorLines[index];
   if (!line) {
     alert('Empty line');
@@ -386,6 +387,9 @@ async function runSingleLine(index) {
     alert('Invalid line format. Use: instruction >>> expected result\nOr use special commands: "go to <url>", "reset session"');
     return;
   }
+
+  // Check if Ctrl key was held (continue to next line)
+  continueToNextLine = event && (event.ctrlKey || event.metaKey);
 
   runningLineIndex = index;
   renderEditor();
@@ -421,7 +425,9 @@ socket.on('single-line-result', ({ testId, result }) => {
   if (testId !== currentTestId) return;
 
   const index = runningLineIndex;
+  const shouldContinue = continueToNextLine;
   runningLineIndex = null;
+  continueToNextLine = false;
   renderEditor();
 
   if (result && index !== null) {
@@ -432,5 +438,12 @@ socket.on('single-line-result', ({ testId, result }) => {
 
     // Also show in results
     displayResults([result], { total: 1, passed: result.success ? 1 : 0, failed: result.success ? 0 : 1 });
+
+    // If Ctrl was held and there's a next line, run it automatically
+    if (shouldContinue && result.success && index + 1 < editorLines.length) {
+      addLog(`\n⏭️ Continuing to next line...`);
+      // Use setTimeout to ensure UI updates before next execution
+      setTimeout(() => runSingleLine(index + 1, { ctrlKey: true }), 100);
+    }
   }
 });

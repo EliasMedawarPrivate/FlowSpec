@@ -1,0 +1,5 @@
+go to https://latower.ch
+reset session
+click on "Plus tard">>> The page does not contain the text 'Installer Tower Heroes' 
+find and click on "Espace Maître du Jeu" : "Espace Maître du Jeu" >>> the input for Email is shown
+enter mail mj@latower.ch and Password : Floaze2025 and click on Entrer dans la Tour>>> the login is successful and screen with "Tableau de Bord MJ" is displayed

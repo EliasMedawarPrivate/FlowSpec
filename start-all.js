@@ -25,10 +25,9 @@ const playwrightMcpBin = join(__dirname, 'node_modules', '.bin', 'mcp-server-pla
 const mcp1 = spawn(playwrightMcpBin, [
   '--port', '8932',
   '--host', '0.0.0.0',
-  '--no-sandbox',
   '--ignore-https-errors',
   '--allowed-hosts=*',
-  '--browser', 'firefox',
+  '--browser', 'chrome',
   '--user-data-dir', './user_dir',
   '--storage-state', './storage_state',
   '--shared-browser-context'
@@ -54,10 +53,9 @@ mcp1.stderr.on('data', (data) => {
 const mcp2 = spawn(playwrightMcpBin, [
   '--port', '8933',
   '--host', '0.0.0.0',
-  '--no-sandbox',
   '--ignore-https-errors',
   '--allowed-hosts=*',
-  '--browser', 'firefox',
+  '--browser', 'chrome',
   '--user-data-dir', './user_dir_2',
   '--storage-state', './storage_state_2',
   '--shared-browser-context'

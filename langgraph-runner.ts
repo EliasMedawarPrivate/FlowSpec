@@ -2,6 +2,7 @@ import { StateGraph, END, START } from '@langchain/langgraph';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage } from '@langchain/core/messages';
 import * as fs from 'fs';
+import * as path from 'path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
@@ -73,10 +74,12 @@ export class LangGraphTestRunner {
   private mcpClient1: Client | null = null;
   private mcpClient2: Client | null = null;
   private memory: Map<string, any>;
+  private maxRetries: number;
 
   constructor(
     apiKey?: string,
-    model: string = "qwen/qwen3-30b-a3b-thinking-2507"
+    model: string = "qwen/qwen3-30b-a3b-thinking-2507",
+    maxRetries: number = 2
   ) {
     const resolvedApiKey = apiKey || process.env.OPENROUTER_API_KEY;
     if (!resolvedApiKey) {
@@ -98,7 +101,9 @@ export class LangGraphTestRunner {
     });
     // Load persistent memory from file
     this.memory = loadMemoryFromFile();
+    this.maxRetries = maxRetries;
     console.log(`📦 Loaded ${this.memory.size} items from persistent memory`);
+    console.log(`🔄 Max retries per step: ${this.maxRetries}`);
   }
 
   /**
@@ -212,8 +217,33 @@ export class LangGraphTestRunner {
    *
    * Browser prefix: *1 or *2 at start of line to target specific browser
    * Custom delay syntax: [[milliseconds]] e.g., click "Submit" [[1200]] >>> form submitted
+   * File inclusion: ##FileName.txt - includes all lines from the referenced file
    */
   parseTestFile(filePath: string): Array<{ instruction: string; expectedResult: string; delay: number; browserNum: 1 | 2 }> {
+    const baseDir = path.dirname(filePath);
+    return this.parseTestFileContent(filePath, baseDir, new Set<string>());
+  }
+
+  /**
+   * Internal method to parse test file content with include support
+   * @param filePath - Path to the test file
+   * @param baseDir - Base directory for resolving relative includes
+   * @param includedFiles - Set of already included files to prevent circular includes
+   */
+  private parseTestFileContent(
+    filePath: string,
+    baseDir: string,
+    includedFiles: Set<string>
+  ): Array<{ instruction: string; expectedResult: string; delay: number; browserNum: 1 | 2 }> {
+    const absolutePath = path.resolve(filePath);
+
+    // Check for circular includes
+    if (includedFiles.has(absolutePath)) {
+      console.warn(`⚠️ Circular include detected, skipping: ${filePath}`);
+      return [];
+    }
+    includedFiles.add(absolutePath);
+
     const content = fs.readFileSync(filePath, 'utf-8');
     const lines = content.split('\n');
     const steps: Array<{ instruction: string; expectedResult: string; delay: number; browserNum: 1 | 2 }> = [];
@@ -221,6 +251,25 @@ export class LangGraphTestRunner {
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue; // Skip empty lines
+
+      // Check for file inclusion syntax: ##FileName.txt
+      const includeMatch = trimmed.match(/^##(.+\.txt)$/i);
+      if (includeMatch) {
+        const includeFileName = includeMatch[1];
+        const includePath = path.resolve(baseDir, includeFileName);
+
+        console.log(`📂 Including file: ${includeFileName}`);
+
+        try {
+          // Recursively parse the included file
+          const includedSteps = this.parseTestFileContent(includePath, path.dirname(includePath), includedFiles);
+          steps.push(...includedSteps);
+          console.log(`   ✅ Included ${includedSteps.length} steps from ${includeFileName}`);
+        } catch (error) {
+          console.error(`   ❌ Failed to include ${includeFileName}:`, error instanceof Error ? error.message : error);
+        }
+        continue;
+      }
 
       // Parse browser prefix first
       const { browserNum, cleanInstruction: withoutPrefix } = this.parseBrowserPrefix(trimmed);
@@ -440,6 +489,60 @@ export class LangGraphTestRunner {
   }
 
   /**
+   * Run a single step with retry logic
+   * Retries the step up to maxRetries times if it fails
+   * @param stepApp - Compiled step workflow
+   * @param state - Current test state
+   * @param stepIndex - Index of the step being run (for logging)
+   * @returns Updated state after step execution (with retries if needed)
+   */
+  private async runStepWithRetry(
+    stepApp: ReturnType<typeof this.buildStepWorkflow>,
+    state: TestState,
+    stepIndex: number
+  ): Promise<TestState> {
+    let attempt = 0;
+    let lastState = state;
+
+    while (attempt <= this.maxRetries) {
+      if (attempt > 0) {
+        console.log(`\n🔄 Retry attempt ${attempt}/${this.maxRetries} for step ${stepIndex + 1}...`);
+        // Wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      // Reset results for this step on retry (keep previous steps' results)
+      const stateForAttempt: TestState = {
+        ...lastState,
+        results: lastState.results.filter(r => r.stepIndex !== stepIndex),
+      };
+
+      const stepResult = await stepApp.invoke(stateForAttempt as any, {
+        recursionLimit: 25,
+      });
+
+      lastState = stepResult as unknown as TestState;
+
+      // Check if this step succeeded
+      const stepResults = lastState.results.filter(r => r.stepIndex === stepIndex);
+      const stepSucceeded = stepResults.length > 0 && stepResults[stepResults.length - 1].success;
+
+      if (stepSucceeded) {
+        if (attempt > 0) {
+          console.log(`   ✅ Step ${stepIndex + 1} succeeded on retry ${attempt}`);
+        }
+        return lastState;
+      }
+
+      attempt++;
+    }
+
+    // All retries exhausted
+    console.log(`   ❌ Step ${stepIndex + 1} failed after ${this.maxRetries} retries`);
+    return lastState;
+  }
+
+  /**
    * Run a single test step without closing MCP connection
    * This is used by the web UI for single-step execution to maintain browser session
    * @param instruction - Single instruction line (with >>> expected result)
@@ -474,11 +577,10 @@ export class LangGraphTestRunner {
       browserNum,
     };
 
-    const finalState = await stepApp.invoke(initialState as any, {
-      recursionLimit: 25,
-    });
+    // Run with retry logic
+    const finalState = await this.runStepWithRetry(stepApp, initialState, 0);
 
-    const result = (finalState as unknown as TestState).results[0] || {
+    const result = finalState.results[0] || {
       stepIndex: 0,
       instruction: step.instruction,
       expectedResult: step.expectedResult,
@@ -540,15 +642,14 @@ export class LangGraphTestRunner {
           console.log(`🔄 Switching to Browser ${stepBrowser}`);
         }
 
-        // Invoke graph for this single step (recursion limit is per-invocation)
-        const stepResult = await stepApp.invoke(currentState as any, {
-          recursionLimit: 25, // Reasonable limit per step to catch infinite loops
-        });
+        // Run step with retry logic
+        currentState = await this.runStepWithRetry(
+          stepApp,
+          currentState,
+          i
+        );
 
-        // Update state with results from this step
-        currentState = stepResult as unknown as TestState;
-
-        // Stop if step failed
+        // Stop if step failed (after all retries exhausted)
         if (!currentState.shouldContinue) {
           break;
         }
@@ -755,7 +856,84 @@ Format your response as valid JSON.`;
   }
 
   /**
-   * Verify that the expected result is present in the page
+   * Get regex patterns from LLM for verifying expected result
+   * The LLM analyzes the expected result and returns regex patterns to check locally
+   * Supports both "match" (must be present) and "notMatch" (must NOT be present) patterns
+   */
+  private async getVerificationPatterns(
+    expectedResult: string
+  ): Promise<{
+    match: string[];
+    notMatch: string[];
+    memoryChecks: Array<{ key: string; pattern?: string; shouldExist?: boolean }>;
+  }> {
+    const prompt = `You are a QA automation agent. Given an expected result description, provide regex patterns to verify it.
+
+EXPECTED RESULT:
+${expectedResult}
+
+CURRENT MEMORY STATE (for reference):
+${JSON.stringify(Object.fromEntries(this.memory))}
+
+YOUR TASK:
+Provide regex patterns to verify the expected result. Patterns are tested against the page's text content (case-insensitive).
+
+Return a JSON response with:
+- match: Array of regex patterns that SHOULD be found (at least one must match for success)
+  - Examples: "welcome.*dashboard", "login.*successful", "order.*confirmed"
+- notMatch: Array of regex patterns that should NOT be found (if any matches, verification fails)
+  - Use this for verifying something disappeared or is absent
+  - Examples: "error", "invalid.*password", "login.*form", "please.*try.*again"
+- memoryChecks: (optional) Array of { key: string, pattern?: string, shouldExist?: boolean }
+  - shouldExist: true (default) = key must exist, false = key must NOT exist
+
+EXAMPLES:
+1. Expected: "user is logged in" → { "match": ["welcome", "dashboard", "logout"], "notMatch": ["login.*form", "sign.*in"] }
+2. Expected: "error message disappeared" → { "match": [], "notMatch": ["error", "invalid", "failed"] }
+3. Expected: "form submitted successfully" → { "match": ["success", "thank.*you", "submitted"], "notMatch": ["error", "required.*field"] }
+
+IMPORTANT:
+- Use simple, flexible patterns
+- For "notMatch", think about what should NOT appear if the expected result is true
+- Empty arrays are valid (e.g., match: [] with notMatch patterns only)
+
+Format your response as valid JSON only.`;
+
+    try {
+      const response = await this.model.invoke([new HumanMessage(prompt)]);
+      const content = typeof response.content === 'string' ? response.content : '';
+
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        // Fallback: use the expected result as a simple match pattern
+        return {
+          match: [expectedResult.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')],
+          notMatch: [],
+          memoryChecks: [],
+        };
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        match: parsed.match || parsed.patterns || [expectedResult],
+        notMatch: parsed.notMatch || [],
+        memoryChecks: parsed.memoryChecks || [],
+      };
+    } catch (error) {
+      console.error('Error getting verification patterns:', error);
+      // Fallback: escape the expected result and use as literal match pattern
+      return {
+        match: [expectedResult.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')],
+        notMatch: [],
+        memoryChecks: [],
+      };
+    }
+  }
+
+  /**
+   * Verify that the expected result is present in the page using local regex matching
+   * LLM provides patterns, verification is done locally
+   * Supports both "match" (must be present) and "notMatch" (must NOT be present) patterns
    */
   private async verifyExpectedResult(
     expectedResult: string,
@@ -764,61 +942,92 @@ Format your response as valid JSON.`;
     success: boolean;
     actualResult: string;
   }> {
-    const prompt = `You are a QA automation agent verifying test results.
+    // Get regex patterns from LLM
+    console.log('   🔍 Getting verification patterns from LLM...');
+    const { match, notMatch, memoryChecks } = await this.getVerificationPatterns(expectedResult);
 
-CURRENT PAGE STATE:
-${pageContent}
+    if (match.length > 0) {
+      console.log(`   📋 Must match (any): ${match.map((p: string) => `"${p}"`).join(', ')}`);
+    }
+    if (notMatch.length > 0) {
+      console.log(`   🚫 Must NOT match: ${notMatch.map((p: string) => `"${p}"`).join(', ')}`);
+    }
 
-CURRENT MEMORY STATE:
-${JSON.stringify(Object.fromEntries(this.memory))}
+    // Check memory conditions first
+    for (const check of memoryChecks) {
+      const memValue = this.memory.get(check.key);
+      const shouldExist = check.shouldExist !== false; // default true
 
-EXPECTED RESULT:
-${expectedResult}
-
-AVAILABLE VERIFICATION TOOLS:
-You can use tools to help verify the expected result:
-- { type: 'memory_read', key: 'variable-name' } - Read a value from memory to verify it exists or has a specific value
-
-YOUR TASK:
-Analyze the current page state AND memory state to determine if the expected result is met.
-You can verify:
-1. Page content (text, elements visible on the page)
-2. Memory values (check if specific values are stored in memory)
-
-Return a JSON response with:
-- success: Boolean - true if the expected result is found, false otherwise
-- actualResult: String - a brief description of what you found (either confirming the expected result or explaining what's different)
-- memoryChecks: (optional) Array of { key: string, expectedValue?: any } - memory keys you checked
-
-Be precise and check the actual page content and memory state, not assumptions.
-
-Format your response as valid JSON.`;
-
-    try {
-      const response = await this.model.invoke([new HumanMessage(prompt)]);
-      const content = typeof response.content === 'string' ? response.content : '';
-
-      // Parse AI's response
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
+      if (shouldExist && memValue === undefined) {
         return {
           success: false,
-          actualResult: 'Could not parse verification response',
+          actualResult: `Memory key "${check.key}" not found`,
         };
       }
+      if (!shouldExist && memValue !== undefined) {
+        return {
+          success: false,
+          actualResult: `Memory key "${check.key}" should not exist but has value "${memValue}"`,
+        };
+      }
+      if (shouldExist && check.pattern) {
+        try {
+          const regex = new RegExp(check.pattern, 'i');
+          if (!regex.test(String(memValue))) {
+            return {
+              success: false,
+              actualResult: `Memory "${check.key}" value "${memValue}" doesn't match pattern "${check.pattern}"`,
+            };
+          }
+        } catch (e) {
+          console.warn(`   ⚠️ Invalid memory check pattern: ${check.pattern}`);
+        }
+      }
+    }
 
-      const parsed = JSON.parse(jsonMatch[0]);
+    // Check notMatch patterns first - if any matches, fail immediately
+    for (const pattern of notMatch) {
+      try {
+        const regex = new RegExp(pattern, 'i');
+        if (regex.test(pageContent)) {
+          return {
+            success: false,
+            actualResult: `Found forbidden pattern: "${pattern}"`,
+          };
+        }
+      } catch (e) {
+        console.warn(`   ⚠️ Invalid notMatch regex pattern: ${pattern}`);
+      }
+    }
 
+    // If there are no match patterns, and all notMatch patterns passed, success
+    if (match.length === 0) {
       return {
-        success: parsed.success ?? false,
-        actualResult: parsed.actualResult || 'Verification completed',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        actualResult: `Verification error: ${error instanceof Error ? error.message : String(error)}`,
+        success: true,
+        actualResult: `No forbidden patterns found`,
       };
     }
+
+    // Check match patterns - at least one must match
+    for (const pattern of match) {
+      try {
+        const regex = new RegExp(pattern, 'i');
+        if (regex.test(pageContent)) {
+          return {
+            success: true,
+            actualResult: `Matched pattern: "${pattern}"`,
+          };
+        }
+      } catch (e) {
+        console.warn(`   ⚠️ Invalid match regex pattern: ${pattern}`);
+      }
+    }
+
+    // No match patterns matched
+    return {
+      success: false,
+      actualResult: `No patterns matched. Tried: ${match.map((p: string) => `"${p}"`).join(', ')}`,
+    };
   }
 
   /**
