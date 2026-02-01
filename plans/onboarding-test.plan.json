@@ -1,0 +1,595 @@
+{
+  "scenarioName": "onboarding-test.txt",
+  "createdAt": "2026-01-31T14:30:41.830Z",
+  "updatedAt": "2026-01-31T16:02:29.786Z",
+  "steps": [
+    {
+      "originalInstruction": "*2 click on button \"Suivant \" >>> \"Choisissez votre classe\" is shown",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Suivant",
+          "ref": "e189",
+          "textContent": "Suivant",
+          "role": "button"
+        }
+      ],
+      "verification": {
+        "match": [
+          "choisissez votre classe"
+        ],
+        "notMatch": [],
+        "memoryChecks": []
+      },
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:35:38.166Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "go to https://latower.ch",
+      "type": "special",
+      "actions": [],
+      "specialCommand": {
+        "type": "navigate",
+        "url": "https://latower.ch"
+      },
+      "verification": null,
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-01-31T14:30:49.189Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "reset session",
+      "type": "special",
+      "actions": [],
+      "specialCommand": {
+        "type": "reset"
+      },
+      "verification": null,
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-01-31T14:30:52.576Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "click on \"Plus tard\">>> The page does not contain the text 'Installer Tower Heroes'",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Plus tard",
+          "ref": "e24",
+          "textContent": "Plus tard",
+          "role": "button"
+        }
+      ],
+      "verification": {
+        "match": [],
+        "notMatch": [
+          "Installer Tower Heroes"
+        ],
+        "memoryChecks": []
+      },
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-01-31T14:31:03.510Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "find and click on \"Espace Maître du Jeu\" : \"Espace Maître du Jeu\"",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "link 'Espace Maître du Jeu' [ref=e122] [cursor=pointer]",
+          "ref": "e122",
+          "textContent": "link 'Espace Maître du Jeu' [ref=e122] [cursor=pointer]",
+          "role": "link"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-01-31T14:31:08.638Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "enter mail mj@latower.ch and Password : Floaze2025 and click on Entrer dans la Tour>>>screen with \"Tableau de Bord MJ\" is displayed",
+      "type": "action",
+      "actions": [
+        {
+          "type": "fill",
+          "element": "Email",
+          "ref": "e146",
+          "value": "mj@latower.ch",
+          "textContent": ":",
+          "role": "textbox"
+        },
+        {
+          "type": "fill",
+          "element": "Mot de passe",
+          "ref": "e148",
+          "value": "Floaze2025",
+          "textContent": ":",
+          "role": "textbox"
+        },
+        {
+          "type": "click",
+          "element": "Entrer dans la Tour",
+          "ref": "e149",
+          "textContent": "Entrer dans la Tour",
+          "role": "button"
+        }
+      ],
+      "verification": {
+        "match": [
+          "Tableau de Bord MJ"
+        ],
+        "notMatch": [],
+        "memoryChecks": []
+      },
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-01-31T14:31:51.800Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "click on \"Nouveau Joueur\" >>> the page with \"Gestion des Joueurs\" is displayed",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Nouveau Joueur",
+          "ref": "e207",
+          "textContent": "Nouveau Joueur",
+          "role": "button"
+        }
+      ],
+      "verification": {
+        "match": [
+          "Gestion des Joueurs"
+        ],
+        "notMatch": [],
+        "memoryChecks": []
+      },
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-01-31T14:32:13.067Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "click on \"Nouveau Joueur\" >>> the \"Code personnalisé\" is displayed",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Nouveau Joueur",
+          "ref": "e251",
+          "textContent": "Nouveau Joueur",
+          "role": "button"
+        }
+      ],
+      "verification": {
+        "match": [
+          "Code personnalisé"
+        ],
+        "notMatch": [],
+        "memoryChecks": []
+      },
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-01-31T14:32:38.435Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "click on \"Créer\" [[1200]] >>>  the new page dispay \"Nouveau Joueur Créé !\"",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Créer",
+          "ref": "e508",
+          "textContent": "Créer",
+          "role": "button"
+        }
+      ],
+      "verification": {
+        "match": [
+          "nouveau joueur créé !"
+        ],
+        "notMatch": [],
+        "memoryChecks": []
+      },
+      "delay": 1200,
+      "browserNum": 1,
+      "learnedAt": "2026-01-31T14:32:54.615Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "store in the memory the \"Code Unique\" of the player with name new_uuid",
+      "type": "action",
+      "actions": [
+        {
+          "type": "memory_store",
+          "value": "770f79a2-09e1-4126-8ae2-777166f2e7e0",
+          "key": "code_unique",
+          "extractionHint": "Value for code_unique",
+          "extractionRegex": "770f79a2-09e1-4126-8ae2-777166f2e7e0"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-01-31T16:02:29.784Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "store in the memory \"PIN d'authentification\" of the player with name new_pin",
+      "type": "action",
+      "actions": [
+        {
+          "type": "memory_store",
+          "value": "82873713",
+          "key": "new_pin",
+          "extractionHint": "Value for new_pin",
+          "extractionRegex": "82873713"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-01-31T14:33:16.294Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 go to https://latower.ch",
+      "type": "special",
+      "actions": [],
+      "specialCommand": {
+        "type": "navigate",
+        "url": "https://latower.ch"
+      },
+      "verification": null,
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:34:47.819Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 reset session",
+      "type": "special",
+      "actions": [],
+      "specialCommand": {
+        "type": "reset"
+      },
+      "verification": null,
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:34:51.076Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 click on \"Plus tard\">>> The page does not contain the text 'Installer Tower Heroes'",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Plus tard",
+          "ref": "e24",
+          "textContent": "Plus tard",
+          "role": "button"
+        }
+      ],
+      "verification": {
+        "match": [
+          "The page does not contain the text 'Installer Tower Heroes'"
+        ],
+        "notMatch": [
+          "installer tower heroes"
+        ],
+        "memoryChecks": []
+      },
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:33:36.288Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 click on \"Plus tard\"",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Plus tard",
+          "ref": "e24",
+          "textContent": "Plus tard",
+          "role": "button"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:34:55.599Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 find and click the \"Rejoindre en tant que Joueur\" button",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Rejoindre en tant que Joueur",
+          "ref": "e46",
+          "textContent": "Rejoindre en tant que Joueur",
+          "role": "link"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:35:00.902Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 enter unique code that is stored in memory with name new_uuid in the unique code field",
+      "type": "action",
+      "actions": [
+        {
+          "type": "fill",
+          "element": "Code Unique",
+          "ref": "e154",
+          "memoryKey": "new_uuid",
+          "textContent": ":",
+          "role": "textbox"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:35:05.398Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 enter that is stored in memory with name new_pin in the PIN field",
+      "type": "action",
+      "actions": [
+        {
+          "type": "fill",
+          "element": "PIN à 8 chiffres",
+          "ref": "e158",
+          "memoryKey": "new_pin",
+          "textContent": ":",
+          "role": "textbox"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:35:09.796Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 click on button \"Commencer l'Aventure\"",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "button 'Commencer l'Aventure'",
+          "ref": "e162",
+          "textContent": "button 'Commencer l'Aventure'",
+          "role": "button"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:35:18.821Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 click on button \"Archer\"",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Archer",
+          "ref": "e199",
+          "textContent": "Archer"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:35:42.332Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 Click on continuer >>> \"Répartition des Caractéristiques\" is displayed",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Continuer",
+          "ref": "e273",
+          "textContent": "Continuer",
+          "role": "button"
+        }
+      ],
+      "verification": {
+        "match": [
+          "Répartition des Caractéristiques"
+        ],
+        "notMatch": [],
+        "memoryChecks": []
+      },
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:36:00.441Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 Fill \"Force\" input with 14 and Dexterité with 16",
+      "type": "action",
+      "actions": [
+        {
+          "type": "fill",
+          "element": "Force",
+          "ref": "e290",
+          "value": "14",
+          "textContent": ": \"7\"",
+          "role": "button"
+        },
+        {
+          "type": "fill",
+          "element": "Dextérité",
+          "ref": "e305",
+          "value": "16",
+          "textContent": ": \"11\"",
+          "role": "button"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:36:09.611Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 click on \"Répartition des Caractéristiques\"",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Répartition des Caractéristiques",
+          "ref": "e404",
+          "textContent": "- generic",
+          "role": "heading"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T15:53:36.772Z",
+      "failCount": 1
+    },
+    {
+      "originalInstruction": "*2 Click on continuer >>> \"Bonus Providence\" is displayed",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Continuer",
+          "ref": "e507",
+          "textContent": "Continuer",
+          "role": "button"
+        }
+      ],
+      "verification": {
+        "match": [
+          "bonus providence"
+        ],
+        "notMatch": [],
+        "memoryChecks": []
+      },
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T15:53:50.226Z",
+      "failCount": 1
+    },
+    {
+      "originalInstruction": "*2 Click on \"Lancer le dé de 4 !\" [[1200]]",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Lancer le dé de 4 !",
+          "ref": "e524",
+          "textContent": "Lancer le dé de 4 !",
+          "role": "button"
+        }
+      ],
+      "verification": null,
+      "delay": 1200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T15:54:00.270Z",
+      "failCount": 1
+    },
+    {
+      "originalInstruction": "*2 Click on continuer",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Continuer",
+          "ref": "e400",
+          "textContent": "Continuer",
+          "role": "button"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:36:43.074Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 Generate a name of Hero and write it in Name",
+      "type": "action",
+      "actions": [
+        {
+          "type": "memory_store",
+          "value": "HeroName123",
+          "key": "hero_name",
+          "extractionHint": "Value for hero_name",
+          "extractionRegex": "HeroName123"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T14:36:55.385Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "*2 Click on \"Créer le personnage\" [[10000]] >>> A image of the herro is shown",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Créer le personnage",
+          "ref": "e592",
+          "textContent": "Créer le personnage",
+          "role": "button"
+        }
+      ],
+      "verification": {
+        "match": [
+          "image.*herro",
+          "image.*Valoris",
+          "photo.*shown",
+          "displayed.*image"
+        ],
+        "notMatch": [
+          "error",
+          "not.*found",
+          "failed",
+          "login.*form"
+        ],
+        "memoryChecks": [
+          {
+            "key": "hero_name",
+            "pattern": "Valoris",
+            "shouldExist": true
+          }
+        ]
+      },
+      "delay": 10000,
+      "browserNum": 2,
+      "learnedAt": "2026-01-31T15:56:09.307Z",
+      "failCount": 1
+    }
+  ]
+}

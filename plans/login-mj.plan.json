@@ -1,0 +1,116 @@
+{
+  "scenarioName": "login-mj.txt",
+  "createdAt": "2026-02-01T09:45:48.597Z",
+  "updatedAt": "2026-02-01T09:59:58.117Z",
+  "steps": [
+    {
+      "originalInstruction": "go to https://latower.ch",
+      "type": "special",
+      "actions": [],
+      "specialCommand": {
+        "type": "navigate",
+        "url": "https://latower.ch"
+      },
+      "verification": null,
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-02-01T09:45:48.596Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "reset session",
+      "type": "special",
+      "actions": [],
+      "specialCommand": {
+        "type": "reset"
+      },
+      "verification": null,
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-02-01T09:45:51.848Z",
+      "failCount": 0
+    },
+    {
+      "originalInstruction": "click on \"Plus tard\">>> The page does not contain the text 'Installer Tower Heroes'",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Plus tard",
+          "ref": "e24",
+          "textContent": "Plus tard",
+          "role": "button"
+        }
+      ],
+      "verification": {
+        "match": [],
+        "notMatch": [
+          "installer tower heroes"
+        ],
+        "memoryChecks": []
+      },
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-02-01T09:59:22.766Z",
+      "failCount": 3
+    },
+    {
+      "originalInstruction": "find and click on \"Espace Maître du Jeu\" : \"Espace Maître du Jeu\"",
+      "type": "action",
+      "actions": [
+        {
+          "type": "click",
+          "element": "Espace Maître du Jeu",
+          "ref": "e122",
+          "textContent": "Espace Maître du Jeu",
+          "role": "link"
+        }
+      ],
+      "verification": null,
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-02-01T09:56:04.399Z",
+      "failCount": 2
+    },
+    {
+      "originalInstruction": "enter mail mj@latower.ch and Password : Floaze2025 and click on Entrer dans la Tour>>>screen with \"Tableau de Bord MJ\" is displayed",
+      "type": "action",
+      "actions": [
+        {
+          "type": "fill",
+          "element": "Email",
+          "ref": "e146",
+          "value": "mj@latower.ch",
+          "textContent": ":",
+          "role": "textbox"
+        },
+        {
+          "type": "fill",
+          "element": "Mot de passe",
+          "ref": "e148",
+          "value": "Floaze2025",
+          "textContent": ":",
+          "role": "textbox"
+        },
+        {
+          "type": "click",
+          "element": "Entrer dans la Tour",
+          "ref": "e149",
+          "textContent": "Entrer dans la Tour",
+          "role": "button"
+        }
+      ],
+      "verification": {
+        "match": [
+          "tableau de bord mj"
+        ],
+        "notMatch": [],
+        "memoryChecks": []
+      },
+      "delay": 200,
+      "browserNum": 1,
+      "learnedAt": "2026-02-01T09:59:58.117Z",
+      "failCount": 3
+    }
+  ]
+}

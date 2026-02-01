@@ -49,6 +49,14 @@
         </div>
       </div>
       <button onclick="initBrowsers()" id="initBtn">🌐 Init Browsers</button>
+      <div class="mode-toggle">
+        <button onclick="toggleLearningMode()" id="learnModeBtn" class="secondary">Learning Mode: OFF</button>
+        <span class="mode-hint" id="modeHint">Normal mode</span>
+      </div>
+      <div class="plan-info" id="planInfo" style="display:none;">
+        <span id="planStatus"></span>
+        <button class="secondary small" onclick="deletePlan()">Delete Plan</button>
+      </div>
       <button onclick="runTest()" id="runBtn">▶️ Run Test</button>
       <button class="secondary" onclick="resetSession()">🔄 Reset</button>
       <button class="secondary" onclick="clearLogs()">🗑️ Clear</button>

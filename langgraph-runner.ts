@@ -9,6 +9,90 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 // Persistent memory file path
 const MEMORY_FILE_PATH = './.memory-state.json';
 
+// Plans directory
+const PLANS_DIR = './plans';
+
+// ===== Execution Plan Types =====
+
+export interface PlanAction {
+  type: 'click' | 'fill' | 'navigate' | 'memory_store' | 'memory_read';
+  element?: string;
+  ref?: string;
+  textContent?: string;
+  role?: string;
+  value?: string;
+  memoryKey?: string;
+  url?: string;
+  key?: string;
+  extractionHint?: string;
+  extractionRegex?: string;
+}
+
+export interface PlanStep {
+  originalInstruction: string;
+  type: 'action' | 'special';
+  actions: PlanAction[];
+  specialCommand?: { type: string; url?: string; direction?: string };
+  verification: {
+    match: string[];
+    notMatch: string[];
+    memoryChecks: Array<{ key: string; pattern?: string; shouldExist?: boolean }>;
+  } | null;
+  delay: number;
+  browserNum: 1 | 2;
+  learnedAt: string | null;
+  failCount: number;
+}
+
+export interface ExecutionPlan {
+  scenarioName: string;
+  createdAt: string;
+  updatedAt: string;
+  steps: PlanStep[];
+}
+
+// ===== Plan File I/O =====
+
+export function loadPlan(scenarioName: string): ExecutionPlan | null {
+  try {
+    const planPath = path.join(PLANS_DIR, scenarioName.replace('.txt', '.plan.json'));
+    if (fs.existsSync(planPath)) {
+      const content = fs.readFileSync(planPath, 'utf-8');
+      return JSON.parse(content);
+    }
+  } catch (e) {
+    console.warn('⚠️ Could not load plan file:', e);
+  }
+  return null;
+}
+
+export function savePlan(plan: ExecutionPlan): void {
+  try {
+    if (!fs.existsSync(PLANS_DIR)) {
+      fs.mkdirSync(PLANS_DIR, { recursive: true });
+    }
+    const planPath = path.join(PLANS_DIR, plan.scenarioName.replace('.txt', '.plan.json'));
+    fs.writeFileSync(planPath, JSON.stringify(plan, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('⚠️ Could not save plan file:', e);
+  }
+}
+
+export function findPlanStep(plan: ExecutionPlan | null, instruction: string): PlanStep | null {
+  if (!plan) return null;
+  return plan.steps.find(s => s.originalInstruction === instruction) || null;
+}
+
+export function upsertPlanStep(plan: ExecutionPlan, step: PlanStep): void {
+  const idx = plan.steps.findIndex(s => s.originalInstruction === step.originalInstruction);
+  if (idx >= 0) {
+    plan.steps[idx] = step;
+  } else {
+    plan.steps.push(step);
+  }
+  plan.updatedAt = new Date().toISOString();
+}
+
 // MCP Server URLs for dual-browser setup
 const MCP_URL_1 = 'http://localhost:8932/mcp';
 const MCP_URL_2 = 'http://localhost:8933/mcp';
@@ -786,6 +870,7 @@ export class LangGraphTestRunner {
     browserNum: 1 | 2
   ): Promise<{
     executedActions: string[];
+    rawActions?: any[];
   }> {
     // Check for special commands first - execute directly without AI
     const specialCmd = this.parseSpecialCommand(step.instruction);
@@ -841,14 +926,15 @@ Format your response as valid JSON.`;
 
       const parsed = JSON.parse(jsonMatch[0]);
       const actions: string[] = [];
+      const rawActions = parsed.actions || [];
 
       // Execute actions via MCP
-      for (const action of parsed.actions || []) {
+      for (const action of rawActions) {
         const actionStr = await this.executeMCPAction(action, browserNum);
         actions.push(actionStr);
       }
 
-      return { executedActions: actions };
+      return { executedActions: actions, rawActions };
     } catch (error) {
       console.error('Error executing actions:', error);
       return { executedActions: [] };
@@ -1028,6 +1114,521 @@ Format your response as valid JSON only.`;
       success: false,
       actualResult: `No patterns matched. Tried: ${match.map((p: string) => `"${p}"`).join(', ')}`,
     };
+  }
+
+  // ===== Learning Mode Methods =====
+
+  /**
+   * Enrich raw LLM actions with textContent/role from page snapshot for plan storage.
+   * This makes the plan resilient to ref changes between runs.
+   */
+  private enrichActionsForPlan(rawActions: any[], pageContent: string): PlanAction[] {
+    return rawActions.map(action => {
+      const planAction: PlanAction = {
+        type: action.type,
+        element: action.element,
+        ref: action.ref,
+        value: action.value,
+        memoryKey: action.memoryKey,
+        url: action.url,
+        key: action.key,
+      };
+
+      // Extract textContent and role from page snapshot for click/fill actions
+      if (action.ref && (action.type === 'click' || action.type === 'fill')) {
+        const escapedRef = action.ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        // Try to extract role from nearby context
+        const rolePattern = new RegExp(`(button|link|textbox|checkbox|radio|combobox|heading|img|tab|menu)[^\\n]*\\[ref=${escapedRef}\\]`, 'i');
+        const roleMatch = pageContent.match(rolePattern);
+        if (roleMatch) {
+          planAction.role = roleMatch[1].toLowerCase();
+        }
+
+        // For textContent: use the LLM-provided element description (most reliable)
+        // The page snapshot format varies too much to regex-extract clean text
+        planAction.textContent = action.element || action.ref;
+      }
+
+      // For memory_store with dynamic values from the page, store extraction hints
+      // Don't store the literal value or regex — values are dynamic and change every run
+      if (action.type === 'memory_store' && action.value) {
+        planAction.extractionHint = action.element || `Extract the value labeled "${action.key}" from the page`;
+        delete planAction.value;
+      }
+
+      return planAction;
+    });
+  }
+
+  /**
+   * Run a single step in learning mode: execute with LLM and capture plan data.
+   * Returns both the test result and the captured PlanStep.
+   */
+  async runSingleStepLearning(
+    instruction: string,
+    browserNum: 1 | 2 = 1
+  ): Promise<{ result: TestResult; planStep: PlanStep }> {
+    const trimmed = instruction.trim();
+    let step: { instruction: string; expectedResult: string; delay: number; browserNum: 1 | 2 };
+
+    if (trimmed.includes('>>>')) {
+      const [instructionPart, expectedResult] = trimmed.split('>>>').map(s => s.trim());
+      const { cleanInstruction, delay } = this.parseDelayFromInstruction(instructionPart);
+      step = { instruction: cleanInstruction, expectedResult, delay, browserNum };
+    } else {
+      const { cleanInstruction, delay } = this.parseDelayFromInstruction(trimmed);
+      step = { instruction: cleanInstruction, expectedResult: '__AUTO_PASS__', delay, browserNum };
+    }
+
+    console.log(`\n📚 Learning step on Browser ${browserNum}: ${step.instruction}`);
+
+    // Check for special commands
+    const specialCmd = this.parseSpecialCommand(step.instruction);
+    if (specialCmd.type !== 'none') {
+      const actionResult = await this.executeSpecialCommand(specialCmd, browserNum);
+      const result: TestResult = {
+        stepIndex: 0,
+        instruction: step.instruction,
+        expectedResult: '(auto-pass)',
+        actualResult: 'Command executed successfully',
+        success: true,
+        executedActions: [actionResult],
+        timestamp: new Date(),
+      };
+      const planStep: PlanStep = {
+        originalInstruction: trimmed,
+        type: 'special',
+        actions: [],
+        specialCommand: specialCmd,
+        verification: null,
+        delay: step.delay,
+        browserNum,
+        learnedAt: new Date().toISOString(),
+        failCount: 0,
+      };
+      return { result, planStep };
+    }
+
+    // Step 1: Read page
+    console.log('📖 Reading page content...');
+    const pageContent = await this.readPage('mcp-session', browserNum);
+
+    // Step 2: Execute with LLM (captures raw actions)
+    const { executedActions, rawActions } = await this.executeStepActions(
+      step, pageContent, [], browserNum
+    );
+
+    // Step 3: Enrich actions for plan
+    const planActions = this.enrichActionsForPlan(rawActions || [], pageContent);
+
+    // Step 4: Verify
+    let verification: { match: string[]; notMatch: string[]; memoryChecks: any[] } | null = null;
+    let verifyResult = { success: true, actualResult: 'Command executed successfully' };
+
+    if (step.expectedResult !== '__AUTO_PASS__') {
+      await new Promise(resolve => setTimeout(resolve, step.delay));
+      console.log('   📖 Reading page after actions...');
+      const newPageContent = await this.readPage('mcp-session', browserNum);
+
+      // Get verification patterns from LLM (and capture them for the plan)
+      console.log('   🔍 Getting verification patterns from LLM...');
+      verification = await this.getVerificationPatterns(step.expectedResult);
+
+      // Verify locally
+      verifyResult = await this.verifyWithPatterns(verification, newPageContent);
+      const statusIcon = verifyResult.success ? '✅' : '❌';
+      console.log(`   ${statusIcon} ${verifyResult.actualResult}`);
+    } else {
+      await new Promise(resolve => setTimeout(resolve, Math.max(step.delay, 200)));
+    }
+
+    const result: TestResult = {
+      stepIndex: 0,
+      instruction: step.instruction,
+      expectedResult: step.expectedResult === '__AUTO_PASS__' ? '(auto-pass)' : step.expectedResult,
+      actualResult: verifyResult.actualResult,
+      success: verifyResult.success,
+      executedActions,
+      timestamp: new Date(),
+    };
+
+    const planStep: PlanStep = {
+      originalInstruction: trimmed,
+      type: 'action',
+      actions: planActions,
+      verification,
+      delay: step.delay,
+      browserNum,
+      learnedAt: new Date().toISOString(),
+      failCount: 0,
+    };
+
+    console.log(`   📋 Learned: ${planActions.length} actions, verification: ${verification ? 'yes' : 'none'}`);
+
+    return { result, planStep };
+  }
+
+  // ===== Plan Replay Methods =====
+
+  /**
+   * Resolve element ref by matching textContent against current page snapshot.
+   * Returns the current ref or null if not found.
+   */
+  private resolveElementRef(action: PlanAction, pageContent: string): string | null {
+    if (!action.textContent) return action.ref || null;
+
+    const escapedText = action.textContent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Strategy 1: role + text on same line (most precise)
+    // Matches: `button "Plus tard" [ref=e24]` or `link "Espace Maître du Jeu" [ref=e122]`
+    if (action.role) {
+      const roleBeforeRef = new RegExp(`${action.role}[^\\n]*${escapedText}[^\\n]*\\[ref=(\\w+)\\]`, 'i');
+      const m1 = pageContent.match(roleBeforeRef);
+      if (m1) return m1[1];
+
+      const roleAfterRef = new RegExp(`${action.role}[^\\n]*\\[ref=(\\w+)\\][^\\n]*${escapedText}`, 'i');
+      const m2 = pageContent.match(roleAfterRef);
+      if (m2) return m2[1];
+    }
+
+    // Strategy 2: text before ref on same line (Playwright format: `"Plus tard" [ref=e24]`)
+    const textBeforeRef = new RegExp(`${escapedText}[^\\n]*\\[ref=(\\w+)\\]`, 'i');
+    const m3 = pageContent.match(textBeforeRef);
+    if (m3) return m3[1];
+
+    // Strategy 3: text after ref on same line (`[ref=e24] Plus tard`)
+    const textAfterRef = new RegExp(`\\[ref=(\\w+)\\][^\\n]*${escapedText}`, 'i');
+    const m4 = pageContent.match(textAfterRef);
+    if (m4) return m4[1];
+
+    // Strategy 4: Try with element description if different from textContent
+    if (action.element && action.element !== action.textContent) {
+      const escapedElem = action.element.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const elemBeforeRef = new RegExp(`${escapedElem}[^\\n]*\\[ref=(\\w+)\\]`, 'i');
+      const m5 = pageContent.match(elemBeforeRef);
+      if (m5) return m5[1];
+
+      const elemAfterRef = new RegExp(`\\[ref=(\\w+)\\][^\\n]*${escapedElem}`, 'i');
+      const m6 = pageContent.match(elemAfterRef);
+      if (m6) return m6[1];
+    }
+
+    return null;
+  }
+
+  /**
+   * Verify using stored plan patterns (no LLM call).
+   * Reuses the same regex logic as verifyExpectedResult.
+   */
+  private async verifyWithPatterns(
+    verification: { match: string[]; notMatch: string[]; memoryChecks: Array<{ key: string; pattern?: string; shouldExist?: boolean }> },
+    pageContent: string
+  ): Promise<{ success: boolean; actualResult: string }> {
+    const { match, notMatch, memoryChecks } = verification;
+
+    if (match.length > 0) {
+      console.log(`   📋 Must match (any): ${match.map((p: string) => `"${p}"`).join(', ')}`);
+    }
+    if (notMatch.length > 0) {
+      console.log(`   🚫 Must NOT match: ${notMatch.map((p: string) => `"${p}"`).join(', ')}`);
+    }
+
+    // Check memory conditions
+    for (const check of memoryChecks) {
+      const memValue = this.memory.get(check.key);
+      const shouldExist = check.shouldExist !== false;
+      if (shouldExist && memValue === undefined) {
+        return { success: false, actualResult: `Memory key "${check.key}" not found` };
+      }
+      if (!shouldExist && memValue !== undefined) {
+        return { success: false, actualResult: `Memory key "${check.key}" should not exist but has value "${memValue}"` };
+      }
+      if (shouldExist && check.pattern) {
+        try {
+          const regex = new RegExp(check.pattern, 'i');
+          if (!regex.test(String(memValue))) {
+            return { success: false, actualResult: `Memory "${check.key}" value "${memValue}" doesn't match pattern "${check.pattern}"` };
+          }
+        } catch (e) { /* skip invalid pattern */ }
+      }
+    }
+
+    // Check notMatch patterns
+    for (const pattern of notMatch) {
+      try {
+        const regex = new RegExp(pattern, 'i');
+        if (regex.test(pageContent)) {
+          return { success: false, actualResult: `Found forbidden pattern: "${pattern}"` };
+        }
+      } catch (e) { /* skip invalid pattern */ }
+    }
+
+    // If no match patterns, and notMatch all passed
+    if (match.length === 0) {
+      return { success: true, actualResult: 'No forbidden patterns found' };
+    }
+
+    // Check match patterns
+    for (const pattern of match) {
+      try {
+        const regex = new RegExp(pattern, 'i');
+        if (regex.test(pageContent)) {
+          return { success: true, actualResult: `Matched pattern: "${pattern}"` };
+        }
+      } catch (e) { /* skip invalid pattern */ }
+    }
+
+    return { success: false, actualResult: `No patterns matched. Tried: ${match.map((p: string) => `"${p}"`).join(', ')}` };
+  }
+
+  /**
+   * Extract a dynamic value from the page using regex first, LLM fallback.
+   */
+  private async extractDynamicValue(
+    extractionRegex: string | undefined,
+    extractionHint: string | undefined,
+    pageContent: string,
+    browserNum: 1 | 2
+  ): Promise<string | null> {
+    // Strategy 1: Try regex extraction
+    if (extractionRegex) {
+      try {
+        const regex = new RegExp(extractionRegex, 'i');
+        const match = pageContent.match(regex);
+        if (match) {
+          return match[0];
+        }
+      } catch (e) { /* invalid regex, fall through */ }
+    }
+
+    // Strategy 2: Small focused LLM call
+    if (extractionHint) {
+      try {
+        const prompt = `Extract the following value from this page content. Return ONLY the value, nothing else.
+
+VALUE TO EXTRACT: ${extractionHint}
+
+PAGE CONTENT:
+${pageContent.substring(0, 4000)}
+
+Return only the extracted value as plain text.`;
+
+        const response = await this.model.invoke([new HumanMessage(prompt)]);
+        const content = typeof response.content === 'string' ? response.content.trim() : '';
+        if (content) return content;
+      } catch (e) {
+        console.warn('   ⚠️ LLM extraction failed:', e);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Replay a learned plan step without LLM calls (except for dynamic value extraction).
+   */
+  async replayPlanStep(
+    planStep: PlanStep,
+    browserNum: 1 | 2
+  ): Promise<{ success: boolean; result: TestResult }> {
+    console.log(`\n⚡ Replaying plan step on Browser ${browserNum}: ${planStep.originalInstruction.substring(0, 60)}...`);
+
+    // Handle special commands directly
+    if (planStep.type === 'special' && planStep.specialCommand) {
+      const cmd = planStep.specialCommand as { type: 'navigate' | 'reset' | 'scroll' | 'none'; url?: string; direction?: 'down' | 'up' };
+      const actionResult = await this.executeSpecialCommand(cmd, browserNum);
+      return {
+        success: true,
+        result: {
+          stepIndex: 0,
+          instruction: planStep.originalInstruction,
+          expectedResult: '(auto-pass)',
+          actualResult: 'Command executed successfully',
+          success: true,
+          executedActions: [actionResult],
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    // Step 1: Read current page
+    console.log('   📖 Reading page content...');
+    const pageContent = await this.readPage('mcp-session', browserNum);
+    const executedActions: string[] = [];
+
+    // Step 2: Execute each recorded action
+    for (const action of planStep.actions) {
+      // Handle dynamic memory_store
+      if (action.type === 'memory_store' && (action.extractionHint || action.extractionRegex)) {
+        const value = await this.extractDynamicValue(
+          action.extractionRegex, action.extractionHint, pageContent, browserNum
+        );
+        if (value && action.key) {
+          this.storeInMemory(action.key, value);
+          executedActions.push(`memory_store: ${action.key} = ${value}`);
+        } else {
+          console.warn(`   ⚠️ Could not extract dynamic value for ${action.key}`);
+          return {
+            success: false,
+            result: {
+              stepIndex: 0,
+              instruction: planStep.originalInstruction,
+              expectedResult: '',
+              actualResult: `Failed to extract dynamic value for ${action.key}`,
+              success: false,
+              executedActions,
+              timestamp: new Date(),
+            },
+          };
+        }
+        continue;
+      }
+
+      // Handle static memory_store
+      if (action.type === 'memory_store' && action.key && action.value) {
+        this.storeInMemory(action.key, action.value);
+        executedActions.push(`memory_store: ${action.key} = ${action.value}`);
+        continue;
+      }
+
+      if (action.type === 'memory_read' && action.key) {
+        this.readFromMemory(action.key);
+        executedActions.push(`memory_read: ${action.key}`);
+        continue;
+      }
+
+      // Resolve current ref for click/fill actions
+      let actionToExecute: any = { ...action };
+      if ((action.type === 'click' || action.type === 'fill') && action.textContent) {
+        const resolvedRef = this.resolveElementRef(action, pageContent);
+        if (resolvedRef) {
+          console.log(`   🔗 Resolved ref: ${action.ref} → ${resolvedRef} (via "${action.textContent}")`);
+          actionToExecute.ref = resolvedRef;
+        } else {
+          console.warn(`   ⚠️ Could not resolve element: "${action.textContent}"`);
+          return {
+            success: false,
+            result: {
+              stepIndex: 0,
+              instruction: planStep.originalInstruction,
+              expectedResult: '',
+              actualResult: `Could not find element: "${action.textContent}"`,
+              success: false,
+              executedActions,
+              timestamp: new Date(),
+            },
+          };
+        }
+      }
+
+      // Execute the MCP action
+      const actionStr = await this.executeMCPAction(actionToExecute, browserNum);
+      executedActions.push(actionStr);
+
+      if (actionStr.includes('error')) {
+        return {
+          success: false,
+          result: {
+            stepIndex: 0,
+            instruction: planStep.originalInstruction,
+            expectedResult: '',
+            actualResult: actionStr,
+            success: false,
+            executedActions,
+            timestamp: new Date(),
+          },
+        };
+      }
+    }
+
+    // Step 3: Verify with stored patterns
+    if (planStep.verification) {
+      await new Promise(resolve => setTimeout(resolve, planStep.delay));
+      console.log('   📖 Reading page after actions...');
+      const newPageContent = await this.readPage('mcp-session', browserNum);
+
+      const verifyResult = await this.verifyWithPatterns(planStep.verification, newPageContent);
+      const statusIcon = verifyResult.success ? '✅' : '❌';
+      console.log(`   ${statusIcon} ${verifyResult.actualResult}`);
+
+      // Parse expected result from original instruction
+      let expectedResult = '(auto-pass)';
+      if (planStep.originalInstruction.includes('>>>')) {
+        expectedResult = planStep.originalInstruction.split('>>>')[1]?.trim() || '(auto-pass)';
+      }
+
+      return {
+        success: verifyResult.success,
+        result: {
+          stepIndex: 0,
+          instruction: planStep.originalInstruction,
+          expectedResult,
+          actualResult: verifyResult.actualResult,
+          success: verifyResult.success,
+          executedActions,
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    // No verification needed (auto-pass)
+    await new Promise(resolve => setTimeout(resolve, Math.max(planStep.delay, 200)));
+    return {
+      success: true,
+      result: {
+        stepIndex: 0,
+        instruction: planStep.originalInstruction,
+        expectedResult: '(auto-pass)',
+        actualResult: 'Command executed successfully',
+        success: true,
+        executedActions,
+        timestamp: new Date(),
+      },
+    };
+  }
+
+  /**
+   * Run a single step with plan support.
+   * - learningMode=true: run with LLM, capture plan data
+   * - learningMode=false + planStep: replay plan, fallback to LLM on failure
+   * - learningMode=false + no planStep: run with LLM (normal mode)
+   */
+  async runSingleStepWithPlan(
+    instruction: string,
+    browserNum: 1 | 2,
+    plan: ExecutionPlan | null,
+    learningMode: boolean,
+    planMatchKey?: string
+  ): Promise<{ result: TestResult; updatedPlanStep?: PlanStep; planUpdated?: boolean }> {
+    const matchKey = planMatchKey || instruction.trim();
+    const planStep = findPlanStep(plan, matchKey);
+
+    if (learningMode) {
+      // Learning mode: run with LLM and capture plan data
+      const { result, planStep: newPlanStep } = await this.runSingleStepLearning(instruction, browserNum);
+      return { result, updatedPlanStep: newPlanStep, planUpdated: true };
+    }
+
+    if (planStep && planStep.learnedAt) {
+      // Plan execution mode: replay
+      console.log('   ⚡ Using learned plan (no LLM)');
+      const replayResult = await this.replayPlanStep(planStep, browserNum);
+
+      if (replayResult.success) {
+        return { result: replayResult.result };
+      }
+
+      // Fallback: plan failed, re-learn with LLM
+      console.log('   🔄 Plan replay failed, falling back to LLM...');
+      const { result, planStep: newPlanStep } = await this.runSingleStepLearning(instruction, browserNum);
+      newPlanStep.failCount = planStep.failCount + 1;
+      return { result, updatedPlanStep: newPlanStep, planUpdated: true };
+    }
+
+    // No plan: run normally with LLM (existing behavior)
+    const result = await this.runSingleStep(instruction, browserNum);
+    return { result };
   }
 
   /**

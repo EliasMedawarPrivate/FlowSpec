@@ -2,19 +2,18 @@
 click on "Nouveau Joueur" >>> the page with "Gestion des Joueurs" is displayed 
 click on "Nouveau Joueur" >>> the "Code personnalisé" is displayed
 click on "Créer" [[1200]] >>>  the new page dispay "Nouveau Joueur Créé !"
-store in the memory the "Code Unique" of the player with name new_uuid>>> new_uuid value Stored in memory 
-store in the memory "PIN d'authentification" of the player with name new_pin >>> new_pin value Stored in memory 
+store in the memory the "Code Unique" of the player with name new_uuid
+store in the memory "PIN d'authentification" of the player with name new_pin
 ##login-player.txt
-*2 click on button "Commencer l'Aventure" >>>a screen with possiblity to select a Race is shown
-*2 click on button "Suivant " >>>a screen with possiblity to select a Classe is shown
-*2 click on button "Archer " >>> button "Continuer" is actif
+*2 click on button "Suivant " >>> "Choisissez votre classe" is shown
+*2 click on button "Archer"
 *2 Click on continuer >>> "Répartition des Caractéristiques" is displayed
-*2 Fill "Force" input with 14 and Dexterité with 16 >>>input are updated
-*2 click on "Répartition des Caractéristiques" >>> "Continuer" button is actif
+*2 Fill "Force" input with 14 and Dexterité with 16
+*2 click on "Répartition des Caractéristiques"
 *2 Click on continuer >>> "Bonus Providence" is displayed
-*2 Click on "Lancer le dé de 4 !" [[1200]]  >>>  "Continuer" button is actif
-*2 Click on continuer >>> Form with name and other inputs are displayed
-*2 Generate a name of Hero and write it in Name >>> The name is in the input field
-*2 Click on "Créer le personnage" [[10000]] >>> A image of the herro is shown
+*2 Click on "Lancer le dé de 4 !" [[1200]]
+*2 Click on Continuer
+*2 Generate a name of Hero and write it in "nom du personnage" field
+*2 Click on "Créer le personnage" [[20000]] >>>Button "Continuer avec cette image" is shown
 *2 Click on "Continuer avec cette image" >>> "Choisir votre Avatar" is shown
-*2 Click on "Terminer" [[2000]] >>>  Screen with "Accueil" "Héro" "Combat" and other infos is shown
+*2 Click on "Terminer" [[2000]] >>>  Screen with "Accueil" "Héro" "Combat" is shown

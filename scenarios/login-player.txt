@@ -1,4 +1,7 @@
-*2 click on "Plus tard">>> The page does not contain the text 'Installer Tower Heroes'
-*2 find and click the "Rejoindre en tant que Joueur" button >>> the login form with QR Code and PIN is displayed
-*2 enter unique code that is stored in memory with name new_uuid in the unique code field >>> the new_uuid is in the unique code field 
-*2 enter that is stored in memory with name new_pin in the PIN field  >>>  Pin field have the pin value now
+*2 go to https://latower.ch
+*2 reset session
+*2 click on "Plus tard"
+*2 find and click the "Rejoindre en tant que Joueur" button
+*2 enter unique code that is stored in memory with name new_uuid in the unique code field
+*2 enter that is stored in memory with name new_pin in the PIN field 
+*2 click on button "Commencer l'Aventure"

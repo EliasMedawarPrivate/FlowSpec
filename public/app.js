@@ -6,7 +6,12 @@ let isSaved = true;
 let editorLines = [];
 let runningLineIndex = null;
 let continueToNextLine = false; // Flag to auto-run next line after current completes
+let runFromLineActive = false; // Flag for "run from here" mode (>> button)
 let browsersInitialized = false;
+let learningMode = false;
+let currentPlan = null;
+let includeSourceScenario = null; // The ##file.txt currently being expanded
+let includedPlans = {}; // Cache: { 'login-player.txt': planObj }
 
 // Load scenarios on startup
 loadScenarios();
@@ -44,8 +49,108 @@ function loadScenarioByIndex(index) {
     setScenarioContent(scenario.content);
     isSaved = true;
     updateSaveStatus();
+    loadPlanForScenario();
   }
 }
+
+// ===== Learning Mode & Plan Functions =====
+
+function toggleLearningMode() {
+  learningMode = !learningMode;
+  const btn = document.getElementById('learnModeBtn');
+  btn.textContent = learningMode ? 'Learning Mode: ON' : 'Learning Mode: OFF';
+  btn.className = learningMode ? 'learning-active' : 'secondary';
+  document.getElementById('modeHint').textContent = learningMode
+    ? 'Recording actions into plan'
+    : 'Normal mode';
+  renderEditor();
+}
+
+async function loadPlanForScenario() {
+  if (!currentScenario) {
+    currentPlan = null;
+    updatePlanInfo();
+    return;
+  }
+  try {
+    const name = currentScenario.replace('.txt', '');
+    const res = await fetch(`/api/plans/${name}`);
+    if (res.ok) {
+      currentPlan = await res.json();
+    } else {
+      currentPlan = null;
+    }
+  } catch {
+    currentPlan = null;
+  }
+  updatePlanInfo();
+  renderEditor();
+}
+
+function updatePlanInfo() {
+  const info = document.getElementById('planInfo');
+  const status = document.getElementById('planStatus');
+  if (currentPlan && currentPlan.steps && currentPlan.steps.length > 0) {
+    const learned = currentPlan.steps.filter(s => s.learnedAt).length;
+    const total = currentPlan.steps.length;
+    info.style.display = 'flex';
+    status.textContent = `Plan: ${learned}/${total} steps learned`;
+  } else {
+    info.style.display = 'none';
+  }
+}
+
+async function deletePlan() {
+  if (!currentScenario) return;
+  if (!confirm('Delete the execution plan for this scenario?')) return;
+  try {
+    const name = currentScenario.replace('.txt', '');
+    await fetch(`/api/plans/${name}`, { method: 'DELETE' });
+    currentPlan = null;
+    updatePlanInfo();
+    renderEditor();
+    addLog('Plan deleted');
+  } catch (e) {
+    addLog('Failed to delete plan');
+  }
+}
+
+function getPlanStepForLine(line) {
+  if (!currentPlan || !currentPlan.steps) return null;
+  return currentPlan.steps.find(s => s.originalInstruction === line.trim()) || null;
+}
+
+// Load and cache a plan for an included file
+async function loadIncludedPlan(scenarioName) {
+  if (includedPlans[scenarioName]) return includedPlans[scenarioName];
+  try {
+    const name = scenarioName.replace('.txt', '');
+    const res = await fetch(`/api/plans/${name}`);
+    if (res.ok) {
+      includedPlans[scenarioName] = await res.json();
+      return includedPlans[scenarioName];
+    }
+  } catch {}
+  return null;
+}
+
+// Look up a plan step from the included file's plan
+function getIncludedPlanStep(instruction) {
+  if (!includeSourceScenario || !includedPlans[includeSourceScenario]) return null;
+  const plan = includedPlans[includeSourceScenario];
+  return plan.steps?.find(s => s.originalInstruction === instruction.trim()) || null;
+}
+
+// Listen for plan updates from server
+socket.on('plan-updated', ({ scenarioName }) => {
+  if (currentScenario === scenarioName) {
+    loadPlanForScenario();
+  }
+  // Invalidate cached included plans
+  if (includedPlans[scenarioName]) {
+    delete includedPlans[scenarioName];
+  }
+});
 
 async function saveScenario() {
   const name = document.getElementById('scenarioName').value;
@@ -86,19 +191,11 @@ async function runTest() {
     return;
   }
 
-  document.getElementById('runBtn').disabled = true;
   document.getElementById('results').innerHTML = '';
   document.getElementById('summary').style.display = 'none';
 
-  const res = await fetch('/api/run-test', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scenario, startBrowser: false })
-  });
-
-  const { testId } = await res.json();
-  currentTestId = testId;
-  addLog(`🆔 Test ID: ${testId}`);
+  // Use runFromLine(0) so all lines go through the plan system
+  runFromLine(0);
 }
 
 // Browser initialization
@@ -254,7 +351,15 @@ function initializeEditor() {
 
 function renderEditor() {
   const editor = document.getElementById('lineEditor');
-  editor.innerHTML = editorLines.map((line, index) => `
+  editor.innerHTML = editorLines.map((line, index) => {
+    const planStep = getPlanStepForLine(line);
+    const hasplan = planStep && planStep.learnedAt;
+    const planIndicator = hasplan
+      ? (planStep.failCount > 2 ? '<span class="plan-indicator warn" title="Unreliable plan step">!</span>'
+         : '<span class="plan-indicator learned" title="Learned plan step">P</span>')
+      : '';
+
+    return `
     <div class="line-row" data-index="${index}">
       <input type="number"
              class="line-number-input"
@@ -264,11 +369,18 @@ function renderEditor() {
              onchange="moveLineToPosition(${index}, this.value)"
              onclick="this.select()"
              title="Edit to move line">
+      ${planIndicator}
       <button class="line-play-btn ${runningLineIndex === index ? 'running' : ''}"
               onclick="runSingleLine(${index}, event)"
               ${runningLineIndex !== null ? 'disabled' : ''}
-              title="Run this line (Ctrl+Click to continue to next)">
-        ${runningLineIndex === index ? '⏳' : '▶'}
+              title="${hasplan && !learningMode ? 'Run with plan (fast)' : 'Run this line'}">
+        ${runningLineIndex === index ? '⏳' : (hasplan && !learningMode ? '⚡' : '▶')}
+      </button>
+      <button class="line-play-all-btn"
+              onclick="runFromLine(${index})"
+              ${runningLineIndex !== null ? 'disabled' : ''}
+              title="Run from this line to end">
+        ▶▶
       </button>
       <input type="text"
              class="line-content"
@@ -278,7 +390,7 @@ function renderEditor() {
       <span class="line-status" id="line-status-${index}"></span>
       <button class="line-delete-btn" onclick="deleteLine(${index})" title="Delete line">✕</button>
     </div>
-  `).join('');
+  `}).join('');
 }
 
 function escapeHtml(text) {
@@ -374,6 +486,118 @@ function isSpecialCommand(line) {
   return false;
 }
 
+// Resolve ##include lines into their constituent steps
+function resolveIncludeLines(line) {
+  const includeMatch = line.trim().match(/^##(.+\.txt)$/i);
+  if (!includeMatch) return null;
+
+  const fileName = includeMatch[1];
+  const scenario = scenariosData.find(s => s.name === fileName);
+  if (!scenario) {
+    alert(`Include file not found: ${fileName}\nMake sure the scenario "${fileName}" exists.`);
+    return null;
+  }
+
+  return scenario.content
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0);
+}
+
+// Queue for running expanded include lines
+let includeQueue = [];
+let includeRunning = false;
+let includeOriginalIndex = null;
+
+// Run the next line in the include queue
+// Queue items are { instruction, sourceScenario } objects
+function runNextIncludeLine() {
+  if (includeQueue.length === 0) {
+    includeRunning = false;
+    // Mark the original ##include line as passed
+    if (includeOriginalIndex !== null) {
+      const statusEl = document.getElementById(`line-status-${includeOriginalIndex}`);
+      if (statusEl) statusEl.textContent = '✅';
+    }
+    includeOriginalIndex = null;
+    includeSourceScenario = null;
+    runningLineIndex = null;
+    renderEditor();
+
+    // If run-from-here is active, continue to the next editor line
+    if (runFromLineActive && includeOriginalIndex !== null) return;
+    return;
+  }
+
+  const item = includeQueue.shift();
+  const instruction = typeof item === 'string' ? item : item.instruction;
+  const sourceScenario = (typeof item === 'object' && item.sourceScenario) || includeSourceScenario;
+
+  // Check if this sub-line is itself an include
+  const subInclude = resolveIncludeLines(instruction);
+  if (subInclude) {
+    const subMatch = instruction.trim().match(/^##(.+\.txt)$/i);
+    const nestedSource = subMatch ? subMatch[1] : sourceScenario;
+    // Tag each expanded line with the nested include's scenario name
+    const taggedLines = subInclude.map(line => ({ instruction: line, sourceScenario: nestedSource }));
+    // Load nested include's plan, then continue
+    if (nestedSource && nestedSource !== sourceScenario) {
+      loadIncludedPlan(nestedSource).then(() => {
+        addLog(`📂 Expanding nested include: ${instruction}`);
+        includeQueue = taggedLines.concat(includeQueue);
+        runNextIncludeLine();
+      });
+      return;
+    }
+    addLog(`📂 Expanding nested include: ${instruction}`);
+    includeQueue = taggedLines.concat(includeQueue);
+    runNextIncludeLine();
+    return;
+  }
+
+  // Use included file's plan for step lookup
+  includeSourceScenario = sourceScenario;
+  const inclPlan = includedPlans[sourceScenario];
+  const inclPlanStep = inclPlan?.steps?.find(s => s.originalInstruction === instruction.trim()) || null;
+
+  let inclEndpoint = '/api/run-single';
+  if (learningMode) {
+    if (inclPlanStep && inclPlanStep.learnedAt) {
+      // Already learned in included file's plan — replay instead of re-learning
+      inclEndpoint = '/api/run-single-plan';
+      addLog(`\n⚡ [include] Replaying learned step: ${instruction.substring(0, 60)}...`);
+    } else {
+      inclEndpoint = '/api/learn-single';
+      addLog(`\n📚 [include] Learning: ${instruction.substring(0, 60)}...`);
+    }
+  } else if (inclPlanStep && inclPlanStep.learnedAt) {
+    inclEndpoint = '/api/run-single-plan';
+    addLog(`\n⚡ [include] Replaying: ${instruction.substring(0, 60)}...`);
+  } else {
+    addLog(`\n🎯 [include] Running: ${instruction.substring(0, 60)}...`);
+  }
+
+  // Use the included file's scenario name so plans are saved per-file
+  const scenarioName = sourceScenario || currentScenario || 'untitled.txt';
+
+  fetch(inclEndpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instruction, scenarioName, useExistingTab: true })
+  }).then(res => res.json())
+    .then(({ testId }) => {
+      currentTestId = testId;
+    })
+    .catch(error => {
+      addLog(`❌ Error: ${error.message}`);
+      includeQueue = [];
+      includeRunning = false;
+      includeSourceScenario = null;
+      runningLineIndex = null;
+      renderEditor();
+    });
+}
+
 // Single line execution
 async function runSingleLine(index, event) {
   const line = editorLines[index];
@@ -382,9 +606,24 @@ async function runSingleLine(index, event) {
     return;
   }
 
-  // Allow special commands without >>>
-  if (!line.includes('>>>') && !isSpecialCommand(line)) {
-    alert('Invalid line format. Use: instruction >>> expected result\nOr use special commands: "go to <url>", "reset session"');
+  // Handle ##include lines - expand and run all included steps
+  const includedLines = resolveIncludeLines(line);
+  if (includedLines) {
+    const includeMatch = line.trim().match(/^##(.+\.txt)$/i);
+    includeSourceScenario = includeMatch ? includeMatch[1] : null;
+    addLog(`\n📂 Expanding include: ${line} (${includedLines.length} steps)`);
+    // Tag each line with its source scenario for correct plan file routing
+    includeQueue = includedLines.map(l => ({ instruction: l, sourceScenario: includeSourceScenario }));
+    includeRunning = true;
+    includeOriginalIndex = index;
+    runningLineIndex = index;
+    renderEditor();
+    // Load included file's plan before running, then start queue
+    if (includeSourceScenario) {
+      loadIncludedPlan(includeSourceScenario).then(() => runNextIncludeLine());
+    } else {
+      runNextIncludeLine();
+    }
     return;
   }
 
@@ -398,14 +637,28 @@ async function runSingleLine(index, event) {
   const statusEl = document.getElementById(`line-status-${index}`);
   if (statusEl) statusEl.textContent = '';
 
-  addLog(`\n🎯 Running single line ${index + 1}: ${line.substring(0, 50)}...`);
+  // Determine endpoint based on mode
+  const planStep = getPlanStepForLine(line);
+  let endpoint = '/api/run-single';
+  let modeLabel = 'Running';
+
+  if (learningMode) {
+    endpoint = '/api/learn-single';
+    modeLabel = 'Learning';
+  } else if (planStep && planStep.learnedAt) {
+    endpoint = '/api/run-single-plan';
+    modeLabel = 'Replaying plan';
+  }
+
+  addLog(`\n🎯 ${modeLabel} line ${index + 1}: ${line.substring(0, 50)}...`);
 
   try {
-    const res = await fetch('/api/run-single', {
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         instruction: line,
+        scenarioName: currentScenario || 'untitled.txt',
         useExistingTab: true
       })
     });
@@ -420,12 +673,52 @@ async function runSingleLine(index, event) {
   }
 }
 
+// Run from a specific line through all remaining lines
+async function runFromLine(index) {
+  runFromLineActive = true;
+  runSingleLine(index);
+}
+
 // Handle single line completion
 socket.on('single-line-result', ({ testId, result }) => {
   if (testId !== currentTestId) return;
 
+  // If we're running an include queue, handle sub-step completion
+  if (includeRunning) {
+    const success = result && result.success;
+    addLog(`${success ? '✅' : '❌'} [include] ${result ? result.actualResult : 'No result'}`);
+    displayResults([result], { total: 1, passed: success ? 1 : 0, failed: success ? 0 : 1 });
+
+    if (success && includeQueue.length > 0) {
+      // Continue with next include sub-step
+      setTimeout(() => runNextIncludeLine(), 100);
+    } else {
+      // Include finished (success or failure)
+      const origIndex = includeOriginalIndex;
+      includeRunning = false;
+      includeQueue = [];
+      includeOriginalIndex = null;
+      runningLineIndex = null;
+      renderEditor();
+
+      if (origIndex !== null) {
+        const statusEl = document.getElementById(`line-status-${origIndex}`);
+        if (statusEl) statusEl.textContent = success ? '✅' : '❌';
+      }
+
+      // If run-from-here is active, continue to next editor line
+      if (runFromLineActive && success && origIndex !== null && origIndex + 1 < editorLines.length) {
+        addLog(`\n⏭️ Continuing to next line...`);
+        setTimeout(() => runSingleLine(origIndex + 1), 100);
+      } else {
+        runFromLineActive = false;
+      }
+    }
+    return;
+  }
+
   const index = runningLineIndex;
-  const shouldContinue = continueToNextLine;
+  const shouldContinue = continueToNextLine || runFromLineActive;
   runningLineIndex = null;
   continueToNextLine = false;
   renderEditor();
@@ -439,11 +732,16 @@ socket.on('single-line-result', ({ testId, result }) => {
     // Also show in results
     displayResults([result], { total: 1, passed: result.success ? 1 : 0, failed: result.success ? 0 : 1 });
 
-    // If Ctrl was held and there's a next line, run it automatically
+    // If run-from-here or Ctrl was held and there's a next line, run it automatically
     if (shouldContinue && result.success && index + 1 < editorLines.length) {
       addLog(`\n⏭️ Continuing to next line...`);
       // Use setTimeout to ensure UI updates before next execution
-      setTimeout(() => runSingleLine(index + 1, { ctrlKey: true }), 100);
+      setTimeout(() => runSingleLine(index + 1), 100);
+    } else {
+      // Stop chaining - either failed, last line, or not in continue mode
+      runFromLineActive = false;
     }
+  } else {
+    runFromLineActive = false;
   }
 });

@@ -1,7 +1,7 @@
 import express from 'express';
 import { Server } from 'socket.io';
 import { createServer } from 'http';
-import { LangGraphTestRunner } from './langgraph-runner.js';
+import { LangGraphTestRunner, loadPlan, savePlan, findPlanStep, upsertPlanStep, ExecutionPlan } from './langgraph-runner.js';
 import { config } from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -316,6 +316,245 @@ app.post('/api/reset-session', async (req, res) => {
     res.status(500).json({ error: errorMessage });
   }
 });
+
+// ===== Plan Management Endpoints =====
+
+const PLANS_DIR = path.join(process.cwd(), 'plans');
+
+// List all saved plans
+app.get('/api/plans', (req, res) => {
+  try {
+    if (!fs.existsSync(PLANS_DIR)) {
+      return res.json([]);
+    }
+    const files = fs.readdirSync(PLANS_DIR)
+      .filter(f => f.endsWith('.plan.json'))
+      .map(f => {
+        const content = JSON.parse(fs.readFileSync(path.join(PLANS_DIR, f), 'utf-8'));
+        return {
+          name: f,
+          scenarioName: content.scenarioName,
+          stepsCount: content.steps?.length || 0,
+          learnedCount: content.steps?.filter((s: any) => s.learnedAt).length || 0,
+          createdAt: content.createdAt,
+          updatedAt: content.updatedAt,
+        };
+      });
+    res.json(files);
+  } catch (error) {
+    res.json([]);
+  }
+});
+
+// Get a specific plan
+app.get('/api/plans/:name', (req, res) => {
+  try {
+    const planPath = path.join(PLANS_DIR, req.params.name + '.plan.json');
+    if (!fs.existsSync(planPath)) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+    const content = JSON.parse(fs.readFileSync(planPath, 'utf-8'));
+    res.json(content);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to read plan' });
+  }
+});
+
+// Delete a plan
+app.delete('/api/plans/:name', (req, res) => {
+  try {
+    const planPath = path.join(PLANS_DIR, req.params.name + '.plan.json');
+    if (fs.existsSync(planPath)) {
+      fs.unlinkSync(planPath);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete plan' });
+  }
+});
+
+// Learn a single line (run with LLM, capture plan step)
+app.post('/api/learn-single', async (req, res) => {
+  const { instruction, scenarioName } = req.body;
+  const testId = Date.now().toString();
+
+  const testExecution: TestExecution = {
+    id: testId,
+    status: 'pending',
+    logs: [],
+  };
+
+  activeTests.set(testId, testExecution);
+  res.json({ testId });
+
+  // Run learning in background
+  runLearnSingleInstruction(testId, instruction, scenarioName);
+});
+
+async function runLearnSingleInstruction(testId: string, instruction: string, scenarioName: string) {
+  const test = activeTests.get(testId)!;
+  test.status = 'running';
+  test.startTime = new Date();
+
+  const emitLog = (message: string) => {
+    test.logs.push(message);
+    io.emit('test-log', { testId, message });
+  };
+
+  try {
+    const { browserNum, cleanInstruction } = parseBrowserPrefix(instruction);
+
+    emitLog(`📚 Learning on Browser ${browserNum}: ${cleanInstruction.substring(0, 60)}...`);
+
+    // Intercept console
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    console.log = (...args) => { const m = args.join(' '); emitLog(m); originalLog(...args); };
+    console.warn = (...args) => { const m = '⚠️ ' + args.join(' '); emitLog(m); originalWarn(...args); };
+    console.error = (...args) => { const m = '❌ ' + args.join(' '); emitLog(m); originalError(...args); };
+
+    const runner = await getSharedRunner();
+    const { result, planStep } = await runner.runSingleStepLearning(
+      cleanInstruction, browserNum as 1 | 2
+    );
+
+    // Restore console
+    console.log = originalLog;
+    console.warn = originalWarn;
+    console.error = originalError;
+
+    // Save plan step — use the full original instruction (with browser prefix) as the key
+    if (planStep && scenarioName) {
+      planStep.originalInstruction = instruction.trim();
+      let plan = loadPlan(scenarioName);
+      if (!plan) {
+        plan = {
+          scenarioName,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          steps: [],
+        };
+      }
+      upsertPlanStep(plan, planStep);
+      savePlan(plan);
+      emitLog(`📋 Plan updated for ${scenarioName}`);
+    }
+
+    test.status = 'completed';
+    test.endTime = new Date();
+    test.results = [result];
+
+    io.emit('single-line-result', { testId, result });
+    io.emit('plan-updated', { scenarioName });
+    emitLog(`\n${result.success ? '✅' : '❌'} ${result.actualResult}`);
+  } catch (error) {
+    test.status = 'failed';
+    test.endTime = new Date();
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    emitLog(`\n❌ Error: ${errorMessage}`);
+    io.emit('single-line-result', {
+      testId,
+      result: {
+        instruction: instruction.split('>>>')[0]?.trim() || instruction,
+        expectedResult: instruction.split('>>>')[1]?.trim() || '',
+        actualResult: `Error: ${errorMessage}`,
+        success: false,
+      }
+    });
+  }
+}
+
+// Run a single line using plan (replay with fallback)
+app.post('/api/run-single-plan', async (req, res) => {
+  const { instruction, scenarioName } = req.body;
+  const testId = Date.now().toString();
+
+  const testExecution: TestExecution = {
+    id: testId,
+    status: 'pending',
+    logs: [],
+  };
+
+  activeTests.set(testId, testExecution);
+  res.json({ testId });
+
+  // Run plan execution in background
+  runPlanSingleInstruction(testId, instruction, scenarioName);
+});
+
+async function runPlanSingleInstruction(testId: string, instruction: string, scenarioName: string) {
+  const test = activeTests.get(testId)!;
+  test.status = 'running';
+  test.startTime = new Date();
+
+  const emitLog = (message: string) => {
+    test.logs.push(message);
+    io.emit('test-log', { testId, message });
+  };
+
+  try {
+    const { browserNum, cleanInstruction } = parseBrowserPrefix(instruction);
+    const plan = loadPlan(scenarioName);
+
+    emitLog(`⚡ Running with plan on Browser ${browserNum}: ${cleanInstruction.substring(0, 60)}...`);
+
+    // Intercept console
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    console.log = (...args) => { const m = args.join(' '); emitLog(m); originalLog(...args); };
+    console.warn = (...args) => { const m = '⚠️ ' + args.join(' '); emitLog(m); originalWarn(...args); };
+    console.error = (...args) => { const m = '❌ ' + args.join(' '); emitLog(m); originalError(...args); };
+
+    const runner = await getSharedRunner();
+    // Pass full instruction (with browser prefix) for plan step matching
+    const { result, updatedPlanStep, planUpdated } = await runner.runSingleStepWithPlan(
+      cleanInstruction, browserNum as 1 | 2, plan, false, instruction.trim()
+    );
+
+    // Restore console
+    console.log = originalLog;
+    console.warn = originalWarn;
+    console.error = originalError;
+
+    // Update plan if it changed (fallback occurred)
+    if (planUpdated && updatedPlanStep && scenarioName) {
+      updatedPlanStep.originalInstruction = instruction.trim();
+      let currentPlan = loadPlan(scenarioName) || {
+        scenarioName,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        steps: [],
+      };
+      upsertPlanStep(currentPlan, updatedPlanStep);
+      savePlan(currentPlan);
+      emitLog(`📋 Plan updated (fallback triggered)`);
+      io.emit('plan-updated', { scenarioName });
+    }
+
+    test.status = 'completed';
+    test.endTime = new Date();
+    test.results = [result];
+
+    io.emit('single-line-result', { testId, result });
+    emitLog(`\n${result.success ? '✅' : '❌'} ${result.actualResult}`);
+  } catch (error) {
+    test.status = 'failed';
+    test.endTime = new Date();
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    emitLog(`\n❌ Error: ${errorMessage}`);
+    io.emit('single-line-result', {
+      testId,
+      result: {
+        instruction: instruction.split('>>>')[0]?.trim() || instruction,
+        expectedResult: instruction.split('>>>')[1]?.trim() || '',
+        actualResult: `Error: ${errorMessage}`,
+        success: false,
+      }
+    });
+  }
+}
 
 // Parse browser prefix from instruction (*1 or *2)
 function parseBrowserPrefix(instruction: string): { browserNum: number; cleanInstruction: string } {
